@@ -1,0 +1,31 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version: '1.26.x'
+
+      - name: Test
+        run: go test -race ./...
+
+      - name: Create release
+        uses: softprops/action-gh-release@v3
+        with:
+          generate_release_notes: true
+
+      # Go modules publish by tag; asking the proxy for the version makes
+      # pkg.go.dev pick it up right away instead of on its next crawl.
+      - name: Prime the module proxy
+        run: curl -fsS "https://proxy.golang.org/github.com/mntndev/dexcom-share/@v/${GITHUB_REF_NAME}.info"
