@@ -3,6 +3,7 @@ package dexcomshare
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 
@@ -13,25 +14,13 @@ import (
 )
 
 func beforeSaveHook(i *cassette.Interaction) error {
-	// Remove account ID, name, and password from the request body
+	// Redact the credentials the client sends in the request body.
 	tmp := map[string]any{}
-
-	err := json.Unmarshal([]byte(i.Request.Body), &tmp)
-	if err == nil {
-		if _, ok := tmp["accountId"]; ok {
-			tmp["accountId"] = "REDACTED"
-		}
-
-		if _, ok := tmp["accountName"]; ok {
-			tmp["accountName"] = "REDACTED"
-		}
-
-		if _, ok := tmp["password"]; ok {
-			tmp["password"] = "REDACTED"
-		}
-
-		if _, ok := tmp["sessionId"]; ok {
-			tmp["sessionId"] = "REDACTED"
+	if err := json.Unmarshal([]byte(i.Request.Body), &tmp); err == nil {
+		for _, key := range []string{"accountId", "accountName", "password", "sessionId"} {
+			if _, ok := tmp[key]; ok {
+				tmp[key] = "REDACTED"
+			}
 		}
 
 		b, err := json.Marshal(tmp)
@@ -42,11 +31,13 @@ func beforeSaveHook(i *cassette.Interaction) error {
 		i.Request.Body = string(b)
 	}
 
-	if i.Request.URL == BaseURLUS+"/"+authenticateEndpoint {
+	// Redact the account ID and session ID the API returns. Match on the endpoint
+	// suffix so a recording made against either regional host is covered; keying
+	// off BaseURLUS alone let the session ID leak once already.
+	switch {
+	case strings.HasSuffix(i.Request.URL, "/"+authenticateEndpoint):
 		i.Response.Body = `"accountID"`
-	}
-
-	if i.Request.URL == BaseURLUS+"/"+loginIDEndpoint {
+	case strings.HasSuffix(i.Request.URL, "/"+loginIDEndpoint):
 		i.Response.Body = `"sessionID"`
 	}
 
@@ -57,6 +48,65 @@ func beforeSaveHook(i *cassette.Interaction) error {
 // bodies. Recorded bodies have their credentials redacted and never match.
 func matchByMethodAndURL(r *http.Request, i cassette.Request) bool {
 	return r.Method == i.Method && r.URL.String() == i.URL
+}
+
+// TestBeforeSaveHookRedacts exercises the redaction hook directly. TestRecordedSession
+// replays in recorded mode and so never runs the hook, which is how a live session ID
+// once reached the committed cassette; this test keeps the redaction honest in CI.
+func TestBeforeSaveHookRedacts(t *testing.T) {
+	t.Run("authenticate request and response", func(t *testing.T) {
+		i := &cassette.Interaction{}
+		i.Request.URL = BaseURLUS + "/" + authenticateEndpoint
+		i.Request.Body = `{"accountName":"me@example.com","applicationId":"app","password":"hunter2"}`
+		i.Response.Body = `"real-account-id"`
+
+		require.NoError(t, beforeSaveHook(i))
+
+		got := map[string]any{}
+		require.NoError(t, json.Unmarshal([]byte(i.Request.Body), &got))
+		assert.Equal(t, "REDACTED", got["accountName"])
+		assert.Equal(t, "REDACTED", got["password"])
+		assert.Equal(t, "app", got["applicationId"], "non-secret fields must survive")
+		assert.Equal(t, `"accountID"`, i.Response.Body)
+	})
+
+	t.Run("login request and response", func(t *testing.T) {
+		i := &cassette.Interaction{}
+		i.Request.URL = BaseURLUS + "/" + loginIDEndpoint
+		i.Request.Body = `{"accountId":"real-account-id","applicationId":"app","password":"hunter2"}`
+		i.Response.Body = `"3c348745-d2b3-4e3e-a8fe-306c0c18eae6"`
+
+		require.NoError(t, beforeSaveHook(i))
+
+		got := map[string]any{}
+		require.NoError(t, json.Unmarshal([]byte(i.Request.Body), &got))
+		assert.Equal(t, "REDACTED", got["accountId"])
+		assert.Equal(t, "REDACTED", got["password"])
+		assert.Equal(t, `"sessionID"`, i.Response.Body, "the session ID must never reach the cassette")
+	})
+
+	t.Run("login response is redacted for the outside-US host too", func(t *testing.T) {
+		i := &cassette.Interaction{}
+		i.Request.URL = BaseURLOutsideUS + "/" + loginIDEndpoint
+		i.Response.Body = `"3c348745-d2b3-4e3e-a8fe-306c0c18eae6"`
+
+		require.NoError(t, beforeSaveHook(i))
+		assert.Equal(t, `"sessionID"`, i.Response.Body)
+	})
+
+	t.Run("read glucose redacts the session ID and leaves data intact", func(t *testing.T) {
+		i := &cassette.Interaction{}
+		i.Request.URL = BaseURLUS + "/" + readGlucoseEndpoint
+		i.Request.Body = `{"sessionId":"3c348745-d2b3-4e3e-a8fe-306c0c18eae6","minutes":1440,"maxCount":1}`
+		i.Response.Body = `[{"Value":160,"Trend":"FortyFiveUp"}]`
+
+		require.NoError(t, beforeSaveHook(i))
+
+		got := map[string]any{}
+		require.NoError(t, json.Unmarshal([]byte(i.Request.Body), &got))
+		assert.Equal(t, "REDACTED", got["sessionId"])
+		assert.Equal(t, `[{"Value":160,"Trend":"FortyFiveUp"}]`, i.Response.Body)
+	})
 }
 
 // TestRecordedSession replays a session recorded against the real Share API, so
@@ -80,7 +130,7 @@ func TestRecordedSession(t *testing.T) {
 
 	c, err := NewClient(t.Context(), "username", "password", WithHTTPClient(r.GetDefaultClient()))
 	require.NoError(t, err)
-	assert.Equal(t, "3c348745-d2b3-4e3e-a8fe-306c0c18eae6", c.sessionID)
+	assert.Equal(t, "sessionID", c.sessionID)
 
 	entries, err := c.ReadGlucose(t.Context(), 1440, 1)
 	require.NoError(t, err)

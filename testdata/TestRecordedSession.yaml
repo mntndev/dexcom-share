@@ -78,7 +78,7 @@ interactions:
         trailer: {}
         content_length: 38
         uncompressed: false
-        body: '"3c348745-d2b3-4e3e-a8fe-306c0c18eae6"'
+        body: '"sessionID"'
         headers:
             Cf-Cache-Status:
                 - DYNAMIC
