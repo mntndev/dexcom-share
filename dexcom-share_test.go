@@ -68,15 +68,15 @@ func Test_Client(t *testing.T) {
 
 	client := r.GetDefaultClient()
 
-	c, err := NewClient("username", "password", WithHTTPClient(client))
+	c, err := NewClient(t.Context(), "username", "password", WithHTTPClient(client))
 	assert.NoError(t, err)
 	assert.NotNil(t, c)
 
-	entries, err := c.ReadGlucose(1440, 1)
+	entries, err := c.ReadGlucose(t.Context(), 1440, 1)
 	assert.NoError(t, err)
 	assert.Len(t, entries, 1)
 
-	entries, err = c.ReadGlucose(1440, 100)
+	entries, err = c.ReadGlucose(t.Context(), 1440, 100)
 	assert.NoError(t, err)
 	assert.Len(t, entries, 100)
 }

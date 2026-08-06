@@ -13,6 +13,10 @@ var (
 	ErrLoginFailed = errors.New("dexcomshare: login failed")
 	// ErrReadGlucoseFailed is returned when glucose readings cannot be retrieved.
 	ErrReadGlucoseFailed = errors.New("dexcomshare: read glucose failed")
+	// ErrInvalidMinutes is returned when minutes is outside the range the API accepts.
+	ErrInvalidMinutes = errors.New("dexcomshare: minutes must be between 1 and 1440")
+	// ErrInvalidMaxCount is returned when maxCount is outside the range the API accepts.
+	ErrInvalidMaxCount = errors.New("dexcomshare: max count must be between 1 and 288")
 )
 
 // APIError describes an unsuccessful response from the Share API. The API

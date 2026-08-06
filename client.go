@@ -2,6 +2,7 @@ package dexcomshare
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -51,7 +52,7 @@ func WithBaseURL(baseURL string) Option {
 }
 
 // NewClient creates a new Dexcom Share client and establishes a session.
-func NewClient(username, password string, options ...Option) (*Client, error) {
+func NewClient(ctx context.Context, username, password string, options ...Option) (*Client, error) {
 	client := &Client{
 		username:   username,
 		password:   password,
@@ -63,11 +64,11 @@ func NewClient(username, password string, options ...Option) (*Client, error) {
 		option(client)
 	}
 
-	if err := client.authenticate(); err != nil {
+	if err := client.authenticate(ctx); err != nil {
 		return nil, err
 	}
 
-	if err := client.login(); err != nil {
+	if err := client.login(ctx); err != nil {
 		return nil, err
 	}
 
@@ -81,14 +82,14 @@ type authenticateRequest struct {
 }
 
 // authenticate exchanges the account name and password for an account ID.
-func (c *Client) authenticate() error {
+func (c *Client) authenticate(ctx context.Context) error {
 	request := authenticateRequest{
 		AccountName: c.username,
 		Password:    c.password,
 		Application: applicationID,
 	}
 
-	if err := c.postJSON(authenticateEndpoint, request, &c.accountID); err != nil {
+	if err := c.postJSON(ctx, authenticateEndpoint, request, &c.accountID); err != nil {
 		return fmt.Errorf("%w: %w", ErrAuthenticationFailed, err)
 	}
 
@@ -102,14 +103,14 @@ type loginRequest struct {
 }
 
 // login exchanges the account ID for a session ID. It must be called after authenticate.
-func (c *Client) login() error {
+func (c *Client) login(ctx context.Context) error {
 	request := loginRequest{
 		AccountID:   c.accountID,
 		Password:    c.password,
 		Application: applicationID,
 	}
 
-	if err := c.postJSON(loginIDEndpoint, request, &c.sessionID); err != nil {
+	if err := c.postJSON(ctx, loginIDEndpoint, request, &c.sessionID); err != nil {
 		return fmt.Errorf("%w: %w", ErrLoginFailed, err)
 	}
 
@@ -117,13 +118,13 @@ func (c *Client) login() error {
 }
 
 // postJSON posts in as JSON to endpoint and decodes the response into out.
-func (c *Client) postJSON(endpoint string, in, out any) error {
+func (c *Client) postJSON(ctx context.Context, endpoint string, in, out any) error {
 	body, err := json.Marshal(in)
 	if err != nil {
 		return err
 	}
 
-	request, err := http.NewRequest(http.MethodPost, c.baseURL+"/"+endpoint, bytes.NewReader(body))
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/"+endpoint, bytes.NewReader(body))
 	if err != nil {
 		return err
 	}
