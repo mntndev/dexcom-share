@@ -40,11 +40,11 @@ func beforeSaveHook(i *cassette.Interaction) error {
 		i.Request.Body = string(b)
 	}
 
-	if i.Request.URL == baseURL+"/"+authenticateEndpoint {
+	if i.Request.URL == BaseURLUS+"/"+authenticateEndpoint {
 		i.Response.Body = `"accountID"`
 	}
 
-	if i.Request.URL == baseURL+"/"+loginIDEndpoint {
+	if i.Request.URL == BaseURLUS+"/"+loginIDEndpoint {
 		i.Response.Body = `"sessionID"`
 	}
 
@@ -68,7 +68,7 @@ func Test_Client(t *testing.T) {
 
 	client := r.GetDefaultClient()
 
-	c, err := NewClient("username", "password", WithClient(client))
+	c, err := NewClient("username", "password", WithHTTPClient(client))
 	assert.NoError(t, err)
 	assert.NotNil(t, c)
 
