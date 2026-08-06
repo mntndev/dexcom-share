@@ -4,15 +4,17 @@ import (
 	"encoding/json"
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"gopkg.in/dnaeon/go-vcr.v4/pkg/cassette"
 	"gopkg.in/dnaeon/go-vcr.v4/pkg/recorder"
 )
 
 func beforeSaveHook(i *cassette.Interaction) error {
 	// Remove account ID, name, and password from the request body
-	tmp := map[string]interface{}{}
+	tmp := map[string]any{}
 
 	err := json.Unmarshal([]byte(i.Request.Body), &tmp)
 	if err == nil {
@@ -57,26 +59,45 @@ func matchByMethodAndURL(r *http.Request, i cassette.Request) bool {
 	return r.Method == i.Method && r.URL.String() == i.URL
 }
 
-func Test_Client(t *testing.T) {
+// TestRecordedSession replays a session recorded against the real Share API, so
+// the package keeps decoding responses in the shape Dexcom actually sends. The
+// cassette is replayed in order: the maxCount=1 read must precede the
+// maxCount=100 read.
+func TestRecordedSession(t *testing.T) {
 	r, err := recorder.New(
-		"testdata/Test_NewClient",
+		"testdata/TestRecordedSession",
 		recorder.WithHook(beforeSaveHook, recorder.BeforeSaveHook),
 		recorder.WithMatcher(matchByMethodAndURL),
+		recorder.WithSkipRequestLatency(true),
 	)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	defer func() { assert.NoError(t, r.Stop()) }()
 
-	client := r.GetDefaultClient()
+	// Guard against the cassette going missing and this test quietly turning
+	// into a live call against the real API.
+	require.False(t, r.IsNewCassette())
+	require.False(t, r.IsRecording())
 
-	c, err := NewClient(t.Context(), "username", "password", WithHTTPClient(client))
-	assert.NoError(t, err)
-	assert.NotNil(t, c)
+	c, err := NewClient(t.Context(), "username", "password", WithHTTPClient(r.GetDefaultClient()))
+	require.NoError(t, err)
+	assert.Equal(t, "3c348745-d2b3-4e3e-a8fe-306c0c18eae6", c.sessionID)
 
 	entries, err := c.ReadGlucose(t.Context(), 1440, 1)
-	assert.NoError(t, err)
-	assert.Len(t, entries, 1)
+	require.NoError(t, err)
+	require.Len(t, entries, 1)
+
+	assert.Equal(t, 160, entries[0].Value)
+	assert.Equal(t, TrendFortyFiveUp, entries[0].Trend)
+	assert.Equal(t, "2023-04-03T23:57:08-07:00", entries[0].DT.Format(time.RFC3339))
+	assert.Equal(t, "2023-04-04T06:57:08Z", entries[0].WT.Format(time.RFC3339))
 
 	entries, err = c.ReadGlucose(t.Context(), 1440, 100)
-	assert.NoError(t, err)
-	assert.Len(t, entries, 100)
+	require.NoError(t, err)
+	require.Len(t, entries, 100)
+
+	// Every reading in the recording decodes into a trend this package knows about.
+	for _, entry := range entries {
+		assert.True(t, entry.Trend.Known(), "unknown trend %q", entry.Trend)
+		assert.False(t, entry.WT.IsZero())
+	}
 }
