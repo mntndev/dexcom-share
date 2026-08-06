@@ -2,11 +2,12 @@ package dexcomshare
 
 import (
 	"encoding/json"
+	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	"gopkg.in/dnaeon/go-vcr.v3/cassette"
-	"gopkg.in/dnaeon/go-vcr.v3/recorder"
+	"gopkg.in/dnaeon/go-vcr.v4/pkg/cassette"
+	"gopkg.in/dnaeon/go-vcr.v4/pkg/recorder"
 )
 
 func beforeSaveHook(i *cassette.Interaction) error {
@@ -39,23 +40,31 @@ func beforeSaveHook(i *cassette.Interaction) error {
 		i.Request.Body = string(b)
 	}
 
-	if i.Request.URL == "https://share2.dexcom.com/ShareWebServices/Services/General/AuthenticatePublisherAccount" {
+	if i.Request.URL == baseURL+"/"+authenticateEndpoint {
 		i.Response.Body = `"accountID"`
 	}
 
-	if i.Request.URL == "https://share2.dexcom.com/ShareWebServices/Services/General/LoginPublisherAccountByName" {
+	if i.Request.URL == baseURL+"/"+loginIDEndpoint {
 		i.Response.Body = `"sessionID"`
 	}
 
 	return nil
 }
 
-func Test_Client(t *testing.T) {
-	r, err := recorder.New("testdata/Test_NewClient")
-	assert.NoError(t, err)
-	defer r.Stop()
+// matchByMethodAndURL replaces the default matcher, which also compares request
+// bodies. Recorded bodies have their credentials redacted and never match.
+func matchByMethodAndURL(r *http.Request, i cassette.Request) bool {
+	return r.Method == i.Method && r.URL.String() == i.URL
+}
 
-	r.AddHook(beforeSaveHook, recorder.BeforeSaveHook)
+func Test_Client(t *testing.T) {
+	r, err := recorder.New(
+		"testdata/Test_NewClient",
+		recorder.WithHook(beforeSaveHook, recorder.BeforeSaveHook),
+		recorder.WithMatcher(matchByMethodAndURL),
+	)
+	assert.NoError(t, err)
+	defer func() { assert.NoError(t, r.Stop()) }()
 
 	client := r.GetDefaultClient()
 

@@ -1,14 +1,15 @@
-module github.com/tgiv014/dexcom-share
+module github.com/mntndev/dexcom-share
 
-go 1.18
+go 1.25
 
 require (
-	github.com/stretchr/testify v1.8.2
-	gopkg.in/dnaeon/go-vcr.v3 v3.1.2
+	github.com/stretchr/testify v1.11.1
+	gopkg.in/dnaeon/go-vcr.v4 v4.0.7
 )
 
 require (
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
+	go.yaml.in/yaml/v4 v4.0.0-rc.6 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
